@@ -1,0 +1,15 @@
+# Example Render service configuration (adjust as needed)
+services:
+  - type: web
+    name: insightboard-backend
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: starter
+    autoDeploy: true
+    # Example environment variables (configure in Render web console or via render CLI)
+    envVars:
+      - key: LLM_PROVIDER
+        value: mock
+      # - key: OPENAI_API_KEY
+      #   fromService: secret-openai-key
+

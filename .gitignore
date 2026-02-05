@@ -1,0 +1,15 @@
+/.venv
+/.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+dist/
+build/
+insightboard.db
+.DS_Store
+.pytest_cache/
+.cache/
+
