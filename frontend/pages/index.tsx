@@ -17,19 +17,18 @@ export default function Home() {
     const j = await res.json();
     setJobId(j.jobId);
     setTranscriptId(j.transcriptId);
-    pollJob(j.jobId);
+    pollJob(j.jobId, j.transcriptId);
   }
 
-  async function pollJob(id: string) {
+  async function pollJob(id: string, tid: string | null) {
     const interval = setInterval(async () => {
       const r = await fetch(`/api/proxy/jobs/${id}`);
       const body = await r.json();
       if (body.status === "completed") {
         clearInterval(interval);
         if (body.result?.tasks) setTasks(body.result.tasks);
-        // fallback: fetch transcript
-        if (!body.result?.tasks && transcriptId) {
-          const t = await fetch(`/api/proxy/transcripts/${transcriptId}`);
+        else if (tid) {
+          const t = await fetch(`/api/proxy/transcripts/${tid}`);
           const tb = await t.json();
           setTasks(tb.tasks || []);
         }
@@ -50,8 +49,8 @@ export default function Home() {
       <div style={{ marginTop: 12 }}>
         <button onClick={submit}>Submit Transcript</button>
       </div>
-      <div className="mt-6">
-        <h2 className="text-lg font-semibold">Task Graph</h2>
+      <div style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: "1.125rem", fontWeight: 600 }}>Task Graph</h2>
         <FlowView
           tasks={tasks}
           completedIds={Array.from(completed)}
