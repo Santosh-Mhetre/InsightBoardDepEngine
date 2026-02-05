@@ -3,6 +3,7 @@ services:
   - type: web
     name: insightboard-backend
     env: docker
+    rootDirectory: backend
     dockerfilePath: Dockerfile
     plan: starter
     autoDeploy: true
