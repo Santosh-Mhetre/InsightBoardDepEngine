@@ -6,6 +6,7 @@ export default function Home() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [completed, setCompleted] = useState<Set<string>>(new Set());
 
   async function submit() {
     const res = await fetch("/api/proxy/transcripts", {
@@ -49,9 +50,26 @@ export default function Home() {
       <div style={{ marginTop: 12 }}>
         <button onClick={submit}>Submit Transcript</button>
       </div>
-      <div style={{ marginTop: 24 }}>
-        <h2>Task Graph</h2>
-        <FlowView tasks={tasks} />
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold">Task Graph</h2>
+        <FlowView
+          tasks={tasks}
+          completedIds={Array.from(completed)}
+          onComplete={(id: string) => {
+            setCompleted((prev) => new Set(prev).add(id));
+            // unlock dependents client-side
+            // recompute statuses locally for UI only
+            setTasks((prev) =>
+              prev.map((t) => {
+                if (t.id === id) return { ...t, status: "ready" };
+                const deps = t.dependencies || [];
+                const allDone = deps.every((d: string) => Array.from(completed).concat([id]).includes(d));
+                if (allDone && t.status !== "ready") return { ...t, status: "ready" };
+                return t;
+              })
+            );
+          }}
+        />
       </div>
     </div>
   );

@@ -16,6 +16,13 @@ Local dev
    cd backend
    uvicorn app.main:app --reload --port 8000
 3. Open http://localhost:8000/docs
+Frontend dev
+1. Install frontend deps:
+   cd frontend
+   npm install
+2. Run frontend:
+   npm run dev
+3. The frontend proxies backend requests to the deployed backend by default. To use a local backend set BACKEND_URL env var.
 
 Deployment (Render)
 - A sample `backend/render.yaml` is included. Connect a GitHub repo to Render and use that file or create a Web Service using the Dockerfile.
