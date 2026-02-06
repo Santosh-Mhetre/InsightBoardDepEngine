@@ -9,6 +9,7 @@ venv/
 dist/
 build/
 insightboard.db
+backend-ts/data/
 .DS_Store
 .pytest_cache/
 .cache/
