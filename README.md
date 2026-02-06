@@ -25,7 +25,9 @@ Frontend dev
 3. The frontend proxies backend requests to the deployed backend by default. To use a local backend set BACKEND_URL env var.
 
 Deployment (Render)
-- A sample `backend/render.yaml` is included. Connect a GitHub repo to Render and use that file or create a Web Service using the Dockerfile.
+- Root Directory: `backend-ts`
+- Build command: `npm install && npm run build` (use `&&`, not `&`)
+- Start command: `npm start`
 - Env vars to set on Render:
   - LLM_PROVIDER=mock
   - (later) OPENAI_API_KEY or ANTHROPIC_API_KEY when switching to real provider
