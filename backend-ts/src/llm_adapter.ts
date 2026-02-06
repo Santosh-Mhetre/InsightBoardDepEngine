@@ -1,84 +1,73 @@
-import { v4 as uuidv4 } from "uuid";
-import { Configuration, OpenAIApi } from "openai";
+import axios from "axios";
+import { z } from "zod";
+import { Task } from "./types";
 
-export type TaskItem = {
-  id: string;
-  description: string;
-  priority: "low" | "medium" | "high";
-  dependencies: string[];
-  status: "ready" | "blocked";
-};
+const TaskSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  priority: z.union([z.string(), z.number()]).optional(),
+  dependencies: z.array(z.string()).optional()
+});
 
-export class MockAdapter {
-  async extractTasks(transcript: string): Promise<TaskItem[]> {
-    const lines = transcript.split("\n").map((l) => l.trim()).filter(Boolean);
-    const tasks: TaskItem[] = [];
-    for (let i = 0; i < Math.min(lines.length, 6); i++) {
-      const tid = `t${i + 1}`;
-      tasks.push({
-        id: tid,
-        description: lines[i].slice(0, 200),
-        priority: i % 2 === 0 ? "medium" : "low",
-        dependencies: i > 0 ? [`t${i}`] : [],
-        status: "ready"
-      });
-    }
-    if (tasks.length) {
-      // include a hallucinated dependency to test sanitization
-      tasks[0].dependencies.push("unknown_task_id");
-    }
-    return tasks;
+const ResponseSchema = z.array(TaskSchema);
+
+export async function generateTasksFromLLM(transcript: string): Promise<Task[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const system = `You are a JSON-only assistant. Given a meeting transcript, return a JSON array of task objects.
+Each task object must have:
+- id (short unique id, e.g., T1, T2)
+- description (string)
+- priority (optional)
+- dependencies (array of ids)
+Return ONLY the JSON array, nothing else.`;
+
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY not set");
   }
+
+  const payload = {
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: transcript }
+    ],
+    temperature: 0.0,
+    max_tokens: 800
+  };
+
+  const res = await axios.post("https://api.openai.com/v1/chat/completions", payload, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    timeout: 60_000
+  });
+
+  const text = res.data?.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error("LLM returned empty response");
+  }
+
+  // Try to extract JSON
+  const json = extractJson(text);
+  const parsed = ResponseSchema.parse(json);
+  // normalize dependencies
+  return parsed.map((p) => ({
+    id: p.id,
+    description: p.description,
+    priority: p.priority,
+    dependencies: p.dependencies || []
+  }));
 }
 
-export class OpenAIAdapter {
-  client: OpenAIApi;
-  model: string;
-  constructor(apiKey: string) {
-    const conf = new Configuration({ apiKey });
-    this.client = new OpenAIApi(conf);
-    this.model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  }
-
-  async extractTasks(transcript: string): Promise<TaskItem[]> {
-    const prompt = `You are an assistant that extracts actionable tasks from meeting transcripts. Return ONLY a JSON array of task objects following this schema: { "id": "string", "description": "string", "priority": "low|medium|high", "dependencies": ["task-id-1"], "status": "ready|blocked" }. Transcript:\n\n${transcript}\n\nReturn JSON array only.`;
-    const resp = await this.client.createChatCompletion({
-      model: this.model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.0,
-      max_tokens: 1500,
-    } as any);
-    let content = "";
-    try {
-      content = (resp.data.choices?.[0] as any)?.message?.content ?? (resp.data.choices?.[0] as any)?.text ?? "";
-    } catch (e) {
-      content = "";
-    }
-    // try parse
-    try {
-      const parsed = JSON.parse(content);
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed?.tasks && Array.isArray(parsed.tasks)) return parsed.tasks;
-    } catch {
-      // fallback find first array
-      const m = content.match(/\[[\s\S]*\]/);
-      if (m) {
-        try {
-          return JSON.parse(m[0]);
-        } catch {}
-      }
-    }
-    return [];
+function extractJson(text: string) {
+  const first = text.indexOf("[");
+  const last = text.lastIndexOf("]");
+  if (first === -1 || last === -1) throw new Error("No JSON array found in LLM response");
+  const sub = text.slice(first, last + 1);
+  try {
+    return JSON.parse(sub);
+  } catch (e) {
+    throw new Error("Failed to parse JSON from LLM response: " + (e as Error).message);
   }
 }
-
-export function getAdapter() {
-  const provider = (process.env.LLM_PROVIDER || "mock").toLowerCase();
-  if (provider === "openai") {
-    const key = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
-    if (!key) throw new Error("OPENAI_API_KEY required for openai provider");
-    return new OpenAIAdapter(key);
-  }
-  return new MockAdapter();
-}
-

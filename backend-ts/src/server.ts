@@ -1,66 +1,90 @@
 import express from "express";
-import bodyParser from "body-parser";
-import crypto from "crypto";
-import db from "./db";
+import dotenv from "dotenv";
+import morgan from "morgan";
+import cors from "cors";
+import { initDb, saveTranscript, saveGraph, getGraph } from "./db";
+import { generateTasksFromLLM } from "./llm_adapter";
+import { sanitizeDependencies, detectCycles, markBlockedTasks } from "./validator";
 import { v4 as uuidv4 } from "uuid";
-import { enqueueProcess } from "./worker";
+import fs from "fs";
+import path from "path";
 
+dotenv.config();
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json({ limit: "1mb" }));
+app.use(morgan("combined"));
+app.use(cors());
 
-// POST /transcripts
-app.post("/transcripts", (req, res) => {
-  const content = (req.body?.content || "").trim();
-  if (!content) return res.status(400).json({ detail: "Transcript content is empty" });
-  const hash = crypto.createHash("sha256").update(content, "utf8").digest("hex");
-  const existing = db.prepare("SELECT * FROM transcripts WHERE hash = ?").get(hash);
-  if (existing) {
-    // if a completed job exists, return it
-    const completedJob = db.prepare("SELECT * FROM jobs WHERE transcript_id = ? AND status = 'completed'").get(existing.id);
-    if (completedJob) {
-      return res.json({ jobId: completedJob.id, transcriptId: existing.id, cached: true });
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
+
+async function start() {
+  await initDb();
+
+  app.post("/api/parse", async (req, res) => {
+    const { transcript } = req.body;
+    if (!transcript || typeof transcript !== "string") {
+      return res.status(400).json({ error: "transcript (string) required" });
     }
-    const tasks = db.prepare("SELECT id, description, priority, dependencies, status FROM tasks WHERE transcript_id = ?").all(existing.id);
-    if (tasks && tasks.length) {
-      const jobId = uuidv4();
-      const result = { tasks: tasks.map((t: any) => ({ id: t.id, description: t.description, priority: t.priority, dependencies: JSON.parse(t.dependencies || "[]"), status: t.status })), cycles: [] };
-      db.prepare("INSERT INTO jobs (id, transcript_id, status, result) VALUES (?, ?, ?, ?)").run(jobId, existing.id, "completed", JSON.stringify(result));
-      return res.json({ jobId, transcriptId: existing.id, cached: true });
+
+    // save transcript (always)
+    const saved = await saveTranscript(transcript);
+
+    try {
+      // call LLM
+      const rawTasks = await generateTasksFromLLM(transcript);
+
+      // sanitize hallucinated dependency ids
+      const sanitized = sanitizeDependencies(rawTasks);
+
+      // detect cycles
+      const cycleSet = detectCycles(sanitized);
+
+      // mark blocked tasks if cycle detected
+      const finalTasks = markBlockedTasks(sanitized, cycleSet);
+
+      // persist graph
+      const graphId = (await saveGraph(saved.id, JSON.stringify(finalTasks))).id;
+
+      return res.json({
+        graphId,
+        transcript: saved.text,
+        transcriptId: saved.id,
+        tasks: finalTasks,
+        blockedTaskIds: Array.from(cycleSet)
+      });
+    } catch (err: any) {
+      console.error("LLM error:", err?.message || err);
+      return res.status(502).json({
+        error: "llm_error",
+        message: err?.message || "LLM generation failed",
+        transcriptId: saved.id
+      });
     }
-    // otherwise create job and enqueue processing
-    const jobId = uuidv4();
-    db.prepare("INSERT INTO jobs (id, transcript_id, status) VALUES (?, ?, ?)").run(jobId, existing.id, "pending");
-    enqueueProcess(existing.id, jobId);
-    return res.json({ jobId, transcriptId: existing.id, cached: false });
-  }
-  const id = uuidv4();
-  db.prepare("INSERT INTO transcripts (id, content, hash) VALUES (?, ?, ?)").run(id, content, hash);
-  const jobId = uuidv4();
-  db.prepare("INSERT INTO jobs (id, transcript_id, status) VALUES (?, ?, ?)").run(jobId, id, "pending");
-  enqueueProcess(id, jobId);
-  return res.json({ jobId, transcriptId: id, cached: false });
-});
+  });
 
-// GET /jobs/:id
-app.get("/jobs/:id", (req, res) => {
-  const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(req.params.id);
-  if (!job) return res.status(404).json({ detail: "Job not found" });
-  let parsed = job.result;
-  try { parsed = job.result ? JSON.parse(job.result) : null; } catch (e) { parsed = job.result; }
-  return res.json({ id: job.id, status: job.status, transcript_id: job.transcript_id, result: parsed });
-});
+  app.get("/api/graph/:id", async (req, res) => {
+    const id = req.params.id;
+    const row = await getGraph(id);
+    if (!row) return res.status(404).json({ error: "not_found" });
+    return res.json({
+      id: row.id,
+      transcriptId: row.transcript_id,
+      tasks: JSON.parse(row.tasks_json),
+      createdAt: row.created_at
+    });
+  });
 
-// GET /transcripts/:id
-app.get("/transcripts/:id", (req, res) => {
-  const t = db.prepare("SELECT * FROM transcripts WHERE id = ?").get(req.params.id);
-  if (!t) return res.status(404).json({ detail: "Transcript not found" });
-  const tasks = db.prepare("SELECT * FROM tasks WHERE transcript_id = ?").all(req.params.id);
-  const task_list = tasks.map((task: any) => ({ id: task.id, description: task.description, priority: task.priority, dependencies: JSON.parse(task.dependencies || "[]"), status: task.status }));
-  return res.json({ id: t.id, content: t.content, created_at: t.created_at, tasks: task_list });
-});
+  app.listen(PORT, () => {
+    console.log(`Backend listening on http://localhost:${PORT}`);
+  });
+}
 
-const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+start().catch((e) => {
+  console.error("Failed to start server", e);
+  process.exit(1);
 });
 

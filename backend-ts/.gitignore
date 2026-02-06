@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+backend-ts/data/
+*.sqlite
+*.log
+npm-debug.log*

@@ -1,24 +1,29 @@
 {
-  "name": "insightboard-backend-ts",
+  "name": "insightboard-depengine-backend",
   "version": "0.1.0",
   "private": true,
+  "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc -p .",
-    "start": "node dist/server.js"
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "prod": "NODE_ENV=production node dist/server.js"
   },
   "dependencies": {
-    "better-sqlite3": "^8.4.0",
+    "axios": "^1.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "node-fetch": "^2.6.7",
-    "openai": "^4.12.0"
+    "morgan": "^1.10.0",
+    "sqlite": "^4.1.0",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0",
+    "zod": "^3.23.2"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
+    "@types/express": "^4.17.17",
     "@types/node": "^20.4.2",
-    "@types/uuid": "^10.0.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.1.6",
-    "uuid": "^13.0.0"
+    "typescript": "^5.2.2"
   }
 }

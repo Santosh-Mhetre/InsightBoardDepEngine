@@ -1,43 +1,48 @@
-# InsightBoard Dependency Engine — Repository
+# InsightBoard Dependency Engine
 
-This repository contains the backend for the InsightBoard Dependency Engine take-home assignment.
+Level completed: 1 (Robust Backend). Frontend Level 3 visualization scaffold included.
 
-Status
-- Level completed: Level 1 and Level 2 (basic async via BackgroundTasks and idempotency). Level 3 frontend is optional.
-- Backend: FastAPI, Python, SQLite
-- LLM: pluggable adapters (Mock by default; OpenAI/Anthropic adapters present)
+Overview
+- Converts meeting transcripts into a validated dependency graph via an LLM.
+- Validates and sanitizes hallucinated dependency IDs and detects cycles.
+- Stores transcripts and generated graphs in SQLite (backend-ts/data/db.sqlite).
 
-Local dev
-1. Create venv and install:
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r backend/requirements.txt
-2. Run server:
-   cd backend
-   uvicorn app.main:app --reload --port 8000
-3. Open http://localhost:8000/docs
-Frontend dev
-1. Install frontend deps:
-   cd frontend
-   npm install
-2. Run frontend:
-   npm run dev
-3. The frontend proxies backend requests to the deployed backend by default. To use a local backend set BACKEND_URL env var.
+Tech stack
+- Backend: Node.js + TypeScript + Express
+- LLM: OpenAI (configurable via OPENAI_API_KEY)
+- Database: SQLite (simple file persistence)
+- Frontend: React (Vite) + Tailwind + React Flow (visualization)
 
-Deployment (Render)
-- Root Directory: `backend-ts`
-- Build command: `npm install && npm run build` (use `&&`, not `&`)
-- Start command: `npm start`
-- Env vars to set on Render:
-  - LLM_PROVIDER=mock
-  - (later) OPENAI_API_KEY or ANTHROPIC_API_KEY when switching to real provider
-  - (optional) CELERY_BROKER_URL if you enable Celery+Redis
+Endpoints
+- POST /api/parse
+  - Body: { "transcript": "<text>" }
+  - Success: 200 { graphId, transcript, transcriptId, tasks, blockedTaskIds }
+  - LLM failure: 502 { error: "llm_error", message, transcriptId }
 
-CI
-- GitHub Actions workflow runs unit tests in `backend` on push and PRs.
+- GET /api/graph/:id
+  - Returns stored graph by id.
 
-Notes
-- The repository will accept a provider API key later and switch adapters without code changes.
-- See `backend/README.md` for backend-specific details.
+Local setup
+1. Backend
+   - cd backend-ts
+   - cp .env.example .env and set OPENAI_API_KEY (or add OPENAI_API_KEY in environment)
+   - npm install
+   - npm run dev
 
-# InsightBoardDepEngine
+2. Frontend
+   - cd frontend
+   - npm install
+   - npm run dev
+   - Open http://localhost:5173 and generate graphs (frontend calls backend at http://localhost:4000)
+
+Deployment notes
+- Backend: Dockerfile and Procfile included. For persistent SQLite, deploy to Render/Railway or a VM with persistent disk.
+- Frontend: Vite app can be deployed to Vercel/Netlify.
+- Do NOT commit .env with secrets to Git; a `.env` exists locally in this project for testing but should be rotated before sharing.
+
+Cycle detection
+- DFS-based algorithm identifies nodes participating in cycles and marks them as `blocked` in responses.
+
+What I can do next
+- Harden deployment (Render or Vercel + Postgres), add tests, or polish frontend UI and interactions.
+
